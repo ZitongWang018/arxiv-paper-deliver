@@ -1,59 +1,44 @@
-# ArxivDigest 上线计划（获取可直接访问网址）
+# Plan: 修复 XML 解析 + 加速筛选 + 增强进度可视化
 
-## 目标
-- 产出一个公网可访问 URL，支持用户注册、登录、创建订阅、触发推送、收藏论文等完整交互。
-- 已确认选型：**Render（后端）+ Vercel（前端）+ Postgres**。
+## 问题
 
-## 阶段 1：部署策略定稿（低成本优先）
-1. 后端部署到 Render（Web Service），使用持久磁盘保存 SQLite（或升级到 Postgres）。
-2. 前端部署到 Vercel（静态托管），通过环境变量配置后端 API 基址。
-3. 自定义域名可选，先以平台默认域名完成可用性验证。
+1. `lxml` 未安装 → `BeautifulSoup(xml)` 解析失败
+2. LLM 分析 200 篇论文需要 ~40 次 API 调用（batch_size=5），太慢
+3. 前端进度展示粒度太粗，只有 4 个大步骤，分析阶段没有实时进度
 
-## 阶段 2：生产化改造（代码与配置）
-1. 后端增加生产配置：
-   - 明确 `CORS` 白名单（仅允许前端域名）。
-   - 增加 `ENV=production` 分支配置（日志级别、调试开关）。
-   - 健康检查接口（如 `/healthz`）用于平台探活。
-2. 数据持久化方案：
-   - 方案 A（快速）：SQLite + 挂载持久卷。
-   - 方案 B（推荐）：迁移 Postgres（更稳定、并发更安全）。
-3. 任务调度稳定性：
-   - 明确 APScheduler 启停逻辑，避免多实例重复触发。
-   - 增加推送幂等保护（同订阅同日去重）。
-4. 前端生产配置：
-   - 增加 `.env.production`（`VITE_API_BASE_URL` 指向后端域名）。
-   - 校验登录态恢复与路由守卫在刷新场景下可用。
+## 修改计划
 
-## 阶段 3：部署执行
-1. 创建 Render 服务并配置环境变量：
-   - `JWT_SECRET_KEY`、SMTP 配置、LLM API Key 等。
-2. 创建 Vercel 项目并配置：
-   - `VITE_API_BASE_URL=https://<render-service>.onrender.com`
-3. 首次发布并记录两个公网地址：
-   - 前端 URL
-   - 后端 URL（含 `/docs`）
+### Step 1: 修复 XML 解析器 (backend)
+- `requirements.txt` 添加 `lxml`
 
-## 阶段 4：验收测试（真实用户链路）
-1. 访问前端 URL 完成注册/登录。
-2. 创建订阅并手动触发推送，检查后端日志和邮件送达。
-3. 点击邮件收藏链接，确认跳转网页并成功收藏。
-4. 复测收藏检索、标签、笔记编辑、主题切换。
+### Step 2: 加速 LLM 筛选 (backend)
+- **增大 batch_size**：5 → 10（减少 API 调用次数一半）
+- **并发批处理**：使用 `asyncio.gather` 并发处理多个 batch（限制并发数为 3，避免触发 rate limit）
+- **进度回调**：给 `analyze_papers()` 添加 `on_progress` 回调，每处理完一批报告进度
 
-## 阶段 5：上线后保障
-1. 增加基础监控：
-   - Render 日志告警、SMTP 失败重试日志、任务执行耗时。
-2. 安全与可维护性：
-   - 轮换 JWT/SMTP/LLM 密钥；
-   - 限流与暴力登录防护（后续迭代）。
-3. 文档补齐：
-   - `README` 新增“一键部署 + 回滚 + 故障排查”章节。
+### Step 3: 增强 push_tracker (backend)
+- 新增字段：`papers_analyzed`（已分析数）、`current_step_detail`（子步骤详情）、`elapsed_seconds`
+- 新增 `PushStep.ANALYZING` 阶段支持更细粒度的 progress（20-80 之间按 batch 比例插值）
+- `to_dict()` 返回新字段
 
-## 执行顺序与停点
-1. 先完成阶段 1 的平台确认（Render + Vercel）。
-2. 再做阶段 2 必要改造并本地验证。
-3. 阶段 3 发布后进入阶段 4 验收。
-4. 阶段 5 作为上线加固项。
+### Step 4: 更新 scheduler (backend)
+- 传递 progress 回调给 `llm_service.analyze_papers()`
+- 在回调中更新 task 的分析进度
 
-## 需要你确认
-- 是否采用「Render（后端）+ Vercel（前端）」作为首选部署路径？
-- 数据库先走 SQLite 持久卷（快），还是直接 Postgres（稳）？
+### Step 5: 增强前端进度可视化 (frontend)
+- **步骤指示器**：顶部横向 stepper 显示 4 个阶段（抓取 → 分析 → 发送 → 完成），当前步骤高亮 + 动画
+- **分析进度条**：分析阶段显示 "已分析 45/200 篇"，带百分比
+- **耗时显示**：实时显示已用时间
+- **统计面板**：完成后展示汇总卡片（抓取数/相关数/发送数），带图标和颜色
+- 轮询间隔从 2s 减为 1.5s，分析阶段更频繁
+
+## 文件改动列表
+
+| 文件 | 改动 |
+|------|------|
+| `backend/requirements.txt` | +lxml |
+| `backend/app/services/llm_service.py` | 并发 batch + on_progress 回调 |
+| `backend/app/services/push_tracker.py` | 新字段 + 细粒度进度 |
+| `backend/app/services/scheduler.py` | 传递回调 |
+| `frontend/src/api/index.ts` | PushStatus 类型更新 |
+| `frontend/src/components/SubscriptionCard.vue` | 增强进度 UI |
