@@ -119,7 +119,7 @@ def _extract_field_prefix(categories: list[str]) -> set[str]:
 async def _scrape_new_papers(field_abbr: str) -> list[dict]:
     """Scrape today's new papers from arxiv.org/list/{field}/new."""
     url = f"https://arxiv.org/list/{field_abbr}/new"
-    async with httpx.AsyncClient(timeout=30.0) as client:
+    async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
         resp = await client.get(url)
         resp.raise_for_status()
 
@@ -172,7 +172,7 @@ async def _search_papers_by_date(
     date_to = (end + timedelta(days=1)).strftime("%Y%m%d") + "0000"
 
     query = f"({cat_query}) AND submittedDate:[{date_from} TO {date_to}]"
-    api_url = "http://export.arxiv.org/api/query"
+    api_url = "https://export.arxiv.org/api/query"
     params = {
         "search_query": query,
         "start": 0,
@@ -181,7 +181,7 @@ async def _search_papers_by_date(
         "sortOrder": "descending",
     }
 
-    async with httpx.AsyncClient(timeout=60.0) as client:
+    async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
         resp = await client.get(api_url, params=params)
         resp.raise_for_status()
 
