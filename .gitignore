@@ -161,3 +161,19 @@ cython_debug/
 
 # vim
 *.sw*
+
+# ArxivDigest
+backend/arxivdigest.db
+backend/arxivdigest.db-journal
+frontend/node_modules/
+frontend/dist/
+data/
+*.jsonl
+digest.html
+
+# ArxivDigest
+backend/arxivdigest.db
+backend/data/
+frontend/node_modules/
+frontend/dist/
+*.db-journal

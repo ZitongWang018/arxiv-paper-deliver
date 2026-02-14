@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ArxivDigest - {{ subscription_name }}</title>
+</head>
+<body style="margin:0;padding:0;background-color:#f8fafc;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f8fafc;padding:32px 16px;">
+    <tr><td align="center">
+      <table width="640" cellpadding="0" cellspacing="0" style="max-width:640px;width:100%;">
+
+        <!-- Header -->
+        <tr><td style="padding:24px 32px;background:linear-gradient(135deg,#6366f1 0%,#8b5cf6 100%);border-radius:16px 16px 0 0;">
+          <h1 style="margin:0;color:#fff;font-size:22px;font-weight:700;letter-spacing:-0.5px;">📄 ArxivDigest</h1>
+          <p style="margin:8px 0 0;color:rgba(255,255,255,0.85);font-size:14px;">订阅「{{ subscription_name }}」的最新推送</p>
+        </td></tr>
+
+        <!-- Research Interest Reminder -->
+        <tr><td style="padding:20px 32px;background:#fff;border-left:1px solid #e5e7eb;border-right:1px solid #e5e7eb;">
+          <p style="margin:0 0 4px;font-size:12px;color:#9ca3af;text-transform:uppercase;letter-spacing:0.5px;">您的研究关注</p>
+          <p style="margin:0;font-size:14px;color:#4b5563;line-height:1.6;">{{ research_interest[:200] }}{% if research_interest|length > 200 %}…{% endif %}</p>
+        </td></tr>
+
+        <!-- Papers -->
+        {% for paper in papers %}
+        <tr><td style="padding:0 32px;background:#fff;border-left:1px solid #e5e7eb;border-right:1px solid #e5e7eb;">
+          <table width="100%" cellpadding="0" cellspacing="0" style="border-top:1px solid #f3f4f6;padding:20px 0;">
+            <tr><td>
+              <!-- Score Badge -->
+              <table cellpadding="0" cellspacing="0" style="margin-bottom:10px;"><tr>
+                <td style="background:{% if paper.relevance_score >= 8 %}#6366f1{% elif paper.relevance_score >= 5 %}#f59e0b{% else %}#9ca3af{% endif %};color:#fff;font-size:11px;font-weight:700;padding:3px 10px;border-radius:12px;">
+                  相关度 {{ paper.relevance_score }}/10
+                </td>
+                <td style="padding-left:8px;font-size:12px;color:#9ca3af;">#{{ loop.index }}</td>
+              </tr></table>
+
+              <!-- Title -->
+              <a href="{{ paper.url }}" style="color:#1e293b;font-size:16px;font-weight:600;text-decoration:none;line-height:1.4;">{{ paper.title }}</a>
+
+              <!-- Authors -->
+              <p style="margin:6px 0 0;font-size:12px;color:#6b7280;">{{ paper.authors[:150] }}{% if paper.authors|length > 150 %}…{% endif %}</p>
+
+              <!-- Relevance Reason -->
+              {% if paper.relevance_reason %}
+              <div style="margin:12px 0;padding:10px 14px;background:#f0f0ff;border-left:3px solid #6366f1;border-radius:0 8px 8px 0;">
+                <p style="margin:0;font-size:13px;color:#4338ca;font-weight:600;">🔗 与您的研究相关</p>
+                <p style="margin:4px 0 0;font-size:13px;color:#4b5563;line-height:1.5;">{{ paper.relevance_reason }}</p>
+              </div>
+              {% endif %}
+
+              <!-- Abstract ZH -->
+              {% if paper.abstract_zh %}
+              <p style="margin:10px 0 0;font-size:13px;color:#374151;line-height:1.6;"><strong>摘要（中文）：</strong>{{ paper.abstract_zh }}</p>
+              {% endif %}
+
+              <!-- Abstract EN (collapsed) -->
+              <p style="margin:8px 0 0;font-size:12px;color:#9ca3af;line-height:1.5;"><strong>Abstract: </strong>{{ paper.abstract[:300] }}{% if paper.abstract|length > 300 %}…{% endif %}</p>
+
+              <!-- Actions -->
+              <table cellpadding="0" cellspacing="0" style="margin-top:12px;"><tr>
+                <td style="padding-right:8px;">
+                  <a href="{{ frontend_url }}/star?paper_id={{ paper.paper_db_id }}&token={{ user_token }}" style="display:inline-block;padding:6px 16px;background:#6366f1;color:#fff;font-size:12px;font-weight:600;text-decoration:none;border-radius:8px;">⭐ 收藏到研究库</a>
+                </td>
+                <td>
+                  <a href="{{ paper.pdf_url }}" style="display:inline-block;padding:6px 16px;background:#f3f4f6;color:#4b5563;font-size:12px;font-weight:600;text-decoration:none;border-radius:8px;">📥 PDF</a>
+                </td>
+              </tr></table>
+            </td></tr>
+          </table>
+        </td></tr>
+        {% endfor %}
+
+        <!-- Footer -->
+        <tr><td style="padding:20px 32px;background:#f9fafb;border:1px solid #e5e7eb;border-top:none;border-radius:0 0 16px 16px;text-align:center;">
+          <p style="margin:0;font-size:12px;color:#9ca3af;">由 ArxivDigest 智能推送 · <a href="{{ frontend_url }}" style="color:#6366f1;text-decoration:none;">管理我的订阅</a></p>
+        </td></tr>
+
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>

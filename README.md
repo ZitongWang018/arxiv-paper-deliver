@@ -1,106 +1,150 @@
-<p align="center"><img src="./readme_images/banner.png" width=500 /></p>
+# ArxivDigest - 智能论文推荐系统
 
-**ArXiv Digest and Personalized Recommendations using Large Language Models.**
+基于 AI 的 arXiv 论文个性化推荐与推送系统。通过大模型（Qwen / DeepSeek）分析论文与您研究兴趣的相关性，每日自动推送最相关的论文到邮箱，并支持收藏整理。
 
-This repo aims to provide a better daily digest for newly published arXiv papers based on your own research interests and natural-language descriptions, using relevancy ratings from GPT.
+## 功能特性
 
-You can try it out on [Hugging Face](https://huggingface.co/spaces/AutoLLM/ArxivDigest) using your own OpenAI API key.
+- **智能推荐**：基于 LLM 语义分析（非关键词匹配），精准匹配研究兴趣
+- **双引擎支持**：支持 Qwen（通义千问）和 DeepSeek 两种大模型
+- **邮件推送**：包含标题、作者、摘要中文翻译、相关性分析说明
+- **定时推送**：支持每日自动抓取并推送
+- **研究库**：通过邮件一键收藏论文，在 Web 端管理研究笔记和标签
+- **优雅界面**：现代化 Vue 3 前端，支持深色/浅色主题
 
-You can also create a daily subscription pipeline to email you the results.
+## 技术栈
 
-## 📚 Contents
+| 层 | 技术 |
+|---|---|
+| 后端 | FastAPI + SQLAlchemy + SQLite + APScheduler |
+| 前端 | Vue 3 + Vite + TypeScript + Tailwind CSS |
+| LLM | Qwen (DashScope) / DeepSeek (OpenAI 兼容) |
+| 邮件 | SMTP (QQ邮箱 / Gmail / Outlook) |
 
-- [What this repo does](#🔍-what-this-repo-does)
-  * [Examples](#some-examples)
-- [Usage](#💡-usage)
-  * [Running as a github action using SendGrid (Recommended)](#running-as-a-github-action-using-sendgrid-recommended)
-  * [Running as a github action with SMTP credentials](#running-as-a-github-action-with-smtp-credentials)
-  * [Running as a github action without emails](#running-as-a-github-action-without-emails)
-  * [Running from the command line](#running-from-the-command-line)
-  * [Running with a user interface](#running-with-a-user-interface)
-- [Roadmap](#✅-roadmap)
-- [Extending and Contributing](#💁-extending-and-contributing)
+## 快速开始
 
-## 🔍 What this repo does
+### 1. 环境要求
 
-Staying up to date on [arXiv](https://arxiv.org) papers can take a considerable amount of time, with on the order of hundreds of new papers each day to filter through. There is an [official daily digest service](https://info.arxiv.org/help/subscribe.html), however large categories like [cs.AI](https://arxiv.org/list/cs.AI/recent) still have 50-100 papers a day. Determining if these papers are relevant and important to you means reading through the title and abstract, which is time-consuming.
+- Python 3.10+
+- Node.js 18+
 
-This repository offers a method to curate a daily digest, sorted by relevance, using large language models. These models are conditioned based on your personal research interests, which are described in natural language. 
+### 2. 后端
 
-* You modify the configuration file `config.yaml` with an arXiv Subject, some set of Categories, and a natural language statement about the type of papers you are interested in.  
-* The code pulls all the abstracts for papers in those categories and ranks how relevant they are to your interest on a scale of 1-10 using `gpt-3.5-turbo-16k`.
-* The code then emits an HTML digest listing all the relevant papers, and optionally emails it to you using [SendGrid](https://sendgrid.com). You will need to have a SendGrid account with an API key for this functionality to work.  
+```bash
+cd backend
+pip install -r requirements.txt
 
-### Testing it out with Hugging Face:
+# 复制并编辑环境变量
+cp ../.env.example .env
+# 编辑 .env 填入 SMTP 配置和 JWT 密钥
 
-We provide a demo at [https://huggingface.co/spaces/AutoLLM/ArxivDigest](https://huggingface.co/spaces/AutoLLM/ArxivDigest). Simply enter your [OpenAI API key](https://platform.openai.com/account/api-keys) and then fill in the configuration on the right. Note that we do not store your key.
+# 启动
+python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
+```
 
-![hfexample](./readme_images/hf_example.png)
+### 3. 前端
 
-You can also send yourself an email of the digest by creating a SendGrid account and [API key](https://app.SendGrid.com/settings/api_keys).
+```bash
+cd frontend
+npm install
+npm run dev        # 开发模式
+# 或
+npm run build      # 生产构建（输出到 dist/）
+```
 
-### Some examples of results:
+前端支持通过环境变量指定后端地址：
 
-#### Digest Configuration:
-- Subject/Topic: Computer Science
-- Categories: Artificial Intelligence, Computation and Language 
-- Interest: 
-  - Large language model pretraining and finetunings
-  - Multimodal machine learning
-  - Do not care about specific application, for example, information extraction, summarization, etc.
-  - Not interested in paper focus on specific languages, e.g., Arabic, Chinese, etc.
+```bash
+# 生产环境（示例）
+cp .env.production.example .env.production
+# 编辑 VITE_API_BASE_URL=https://your-backend.onrender.com/api
+```
 
-#### Result:
-<p align="left"><img src="./readme_images/example_1.png" width=580 /></p>
+### 4. 访问
 
-#### Digest Configuration:
-- Subject/Topic: Quantitative Finance
-- Interest: "making lots of money"
+- 前端: http://localhost:5173
+- 后端 API: http://localhost:8000
+- API 文档: http://localhost:8000/docs
 
-#### Result:
-<p align="left"><img src="./readme_images/example_2.png" width=580 /></p>
+## 公网部署（推荐）
 
-## 💡 Usage
+推荐方案：**Render（后端 + Postgres）+ Vercel（前端）**
 
-### Running as a github action using SendGrid (Recommended).
+详细逐步教程见：`DEPLOYMENT_GUIDE.md`
 
-The recommended way to get started using this repository is to:
+### 1) 部署后端到 Render
 
-1. Fork the repository
-2. Modify `config.yaml` and merge the changes into your main branch.
-3. Set the following secrets [(under settings, Secrets and variables, repository secrets)](https://docs.github.com/en/actions/security-guides/encrypted-secrets#creating-encrypted-secrets-for-a-repository). See [Advanced Usage](./advanced_usage.md#create-and-fetch-your-api-keys) for more details on how to create and get OpenAi and SendGrid API keys:
-   - `OPENAI_API_KEY` From [OpenAI](https://platform.openai.com/account/api-keys)
-   - `SENDGRID_API_KEY` From [SendGrid](https://app.SendGrid.com/settings/api_keys)
-   - `FROM_EMAIL` This value must match the email you used to create the SendGrid API Key.
-   - `TO_EMAIL`
-4. Manually trigger the action or wait until the scheduled action takes place.
+1. 将仓库连接到 Render，选择使用根目录 `render.yaml`。
+2. 在 Render 控制台补齐环境变量：
+   - `BASE_URL=https://<your-backend>.onrender.com`
+   - `FRONTEND_URL=https://<your-frontend>.vercel.app`
+   - `CORS_ORIGINS=https://<your-frontend>.vercel.app`
+   - `SMTP_*` 全部变量
+3. 首次部署成功后，检查：
+   - `https://<your-backend>.onrender.com/healthz`
+   - `https://<your-backend>.onrender.com/docs`
 
-See [Advanced Usage](./advanced_usage.md) for more details, including step-by-step images, further customization, and alternate usage.
+### 2) 部署前端到 Vercel
 
-### Running with a user interface
+1. 将同一仓库导入 Vercel，Root Directory 选择 `frontend`。
+2. 设置环境变量：
+   - `VITE_API_BASE_URL=https://<your-backend>.onrender.com/api`
+3. 触发部署并访问 `https://<your-frontend>.vercel.app`。
 
-To locally run the same UI as the Huggign Face space:
- 
-1. Install the requirements in `src/requirements.txt` as well as `gradio`.
-2. Run `python src/app.py` and go to the local URL. From there you will be able to preview the papers from today, as well as the generated digests.
-3. If you want to use a `.env` file for your secrets, you can copy `.env.template` to `.env` and then set the environment variables in `.env`.
-- Note: These file may be hidden by default in some operating systems due to the dot prefix.
-- The .env file is one of the files in .gitignore, so git does not track it and it will not be uploaded to the repository.
-- Do not edit the original `.env.template` with your keys or your email address, since `.template.env` is tracked by git and editing it might cause you to commit your secrets.
+### 3) 上线验收
 
-> **WARNING:** Do not edit and commit your `.env.template` with your personal keys or email address! Doing so may expose these to the world!
+1. 前端注册并登录。
+2. 创建订阅并手动触发推送。
+3. 检查邮件送达并点击收藏链接。
+4. 在研究库验证标签、搜索、笔记编辑。
 
-## ✅ Roadmap
+## 使用流程
 
-- [x] Support personalized paper recommendation using LLM.
-- [x] Send emails for daily digest.
-- [ ] Implement a ranking factor to prioritize content from specific authors.
-- [ ] Support open-source models, e.g., LLaMA, Vicuna, MPT etc.
-- [ ] Fine-tune an open-source model to better support paper ranking and stay updated with the latest research concepts..
+1. **注册/登录** — 使用邮箱注册账号
+2. **创建订阅** — 填写研究兴趣、选择 LLM 和 arXiv 分类
+3. **获取推送** — 手动触发或设置每日自动推送
+4. **邮件收藏** — 在推送邮件中点击「收藏到研究库」
+5. **管理研究库** — 在 Web 端添加笔记、标签，整理研究文献
 
+## 项目结构
 
-## 💁 Extending and Contributing
+```
+ArxivDigest/
+├── backend/
+│   ├── app/
+│   │   ├── main.py              # FastAPI 入口
+│   │   ├── config.py            # 配置管理
+│   │   ├── database.py          # 数据库
+│   │   ├── models.py            # ORM 模型
+│   │   ├── schemas.py           # API 数据模型
+│   │   ├── auth.py              # JWT 认证
+│   │   ├── routers/             # API 路由
+│   │   ├── services/            # 业务逻辑
+│   │   └── templates/           # 邮件模板
+│   └── requirements.txt
+├── frontend/
+│   ├── src/
+│   │   ├── views/               # 页面组件
+│   │   ├── components/          # 通用组件
+│   │   ├── stores/              # Pinia 状态
+│   │   ├── api/                 # API 封装
+│   │   └── router/              # 路由
+│   └── package.json
+└── .env.example
+```
 
-You may (and are encourage to) modify the code in this repository to suit your personal needs. If you think your modifications would be in any way useful to others, please submit a pull request.
+## API 端点
 
-These types of modifications include things like changes to the prompt, different language models, or additional ways for the digest is delivered to you.
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | /api/auth/register | 注册 |
+| POST | /api/auth/login | 登录 |
+| GET | /api/auth/me | 当前用户 |
+| GET/POST | /api/subscriptions | 订阅列表/创建 |
+| PUT/DELETE | /api/subscriptions/:id | 更新/删除订阅 |
+| POST | /api/subscriptions/:id/trigger | 手动触发推送 |
+| GET/POST | /api/stars | 收藏列表/添加收藏 |
+| PUT/DELETE | /api/stars/:id | 更新/取消收藏 |
+
+## License
+
+MIT
