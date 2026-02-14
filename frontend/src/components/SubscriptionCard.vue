@@ -1,28 +1,97 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import type { Subscription } from '@/stores/subscription'
 import { useSubscriptionStore } from '@/stores/subscription'
+import type { PushStatus } from '@/api'
 import {
-  PlayIcon, PauseIcon, TrashIcon, BoltIcon,
+  PlayIcon, PauseIcon, TrashIcon, BoltIcon, CalendarDaysIcon,
 } from '@heroicons/vue/24/outline'
 
 const props = defineProps<{ sub: Subscription }>()
 const store = useSubscriptionStore()
+
+// ── Push state ──
 const triggerLoading = ref(false)
-const toastMsg = ref('')
+const pushStatus = ref<PushStatus | null>(null)
+const showDatePicker = ref(false)
+const startDate = ref('')
+const endDate = ref('')
+
+const statusColor = computed(() => {
+  if (!pushStatus.value) return ''
+  if (pushStatus.value.step === 'failed') return 'text-red-600 dark:text-red-400'
+  if (pushStatus.value.step === 'completed') return 'text-emerald-600 dark:text-emerald-400'
+  return 'text-primary-600 dark:text-primary-400'
+})
+
+const progressBarColor = computed(() => {
+  if (!pushStatus.value) return 'bg-primary-500'
+  if (pushStatus.value.step === 'failed') return 'bg-red-500'
+  if (pushStatus.value.step === 'completed') return 'bg-emerald-500'
+  return 'bg-primary-500'
+})
+
+function sleep(ms: number) {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
 
 async function handleTrigger() {
   triggerLoading.value = true
+  pushStatus.value = null
+
   try {
-    await store.trigger(props.sub.id)
-    toastMsg.value = '推送任务已提交！请查收邮件'
-    setTimeout(() => (toastMsg.value = ''), 3000)
-  } catch {
-    toastMsg.value = '推送失败，请重试'
-    setTimeout(() => (toastMsg.value = ''), 3000)
+    const dates = (startDate.value && endDate.value)
+      ? { start_date: startDate.value, end_date: endDate.value }
+      : undefined
+
+    const taskId = await store.trigger(props.sub.id, dates)
+
+    // Poll for status updates
+    let done = false
+    while (!done) {
+      await sleep(2000)
+      try {
+        const status = await store.pollPushStatus(props.sub.id, taskId)
+        pushStatus.value = status
+        done = status.is_done
+      } catch {
+        // If polling fails, show generic error and stop
+        pushStatus.value = {
+          task_id: taskId,
+          subscription_id: props.sub.id,
+          step: 'failed',
+          message: '无法获取推送状态，请检查后端日志',
+          progress: 100,
+          papers_found: 0,
+          papers_relevant: 0,
+          papers_sent: 0,
+          error: '状态查询失败',
+          is_done: true,
+        }
+        done = true
+      }
+    }
+  } catch (e: any) {
+    pushStatus.value = {
+      task_id: '',
+      subscription_id: props.sub.id,
+      step: 'failed',
+      message: e.response?.data?.detail || '推送请求失败，请重试',
+      progress: 100,
+      papers_found: 0,
+      papers_relevant: 0,
+      papers_sent: 0,
+      error: e.response?.data?.detail || '请求失败',
+      is_done: true,
+    }
   } finally {
     triggerLoading.value = false
+    showDatePicker.value = false
   }
+}
+
+function dismissStatus() {
+  pushStatus.value = null
 }
 
 async function toggleActive() {
@@ -88,23 +157,75 @@ const providerLabel: Record<string, string> = {
       </span>
     </div>
 
-    <!-- Toast -->
+    <!-- Date Picker (toggle) -->
     <transition name="fade">
-      <div v-if="toastMsg" class="mb-3 p-2.5 rounded-lg text-xs font-medium bg-primary-50 dark:bg-primary-950 text-primary-700 dark:text-primary-300">
-        {{ toastMsg }}
+      <div v-if="showDatePicker && !triggerLoading" class="mb-4 p-3 rounded-xl bg-gray-50 dark:bg-gray-800/50 space-y-2">
+        <p class="text-xs font-medium text-gray-500 dark:text-gray-400">选择论文日期范围（可选，留空则抓取今日）</p>
+        <div class="flex gap-2">
+          <input v-model="startDate" type="date" class="input-field text-xs flex-1" placeholder="开始日期" />
+          <input v-model="endDate" type="date" class="input-field text-xs flex-1" placeholder="结束日期" />
+        </div>
+      </div>
+    </transition>
+
+    <!-- Push Progress -->
+    <transition name="fade">
+      <div v-if="pushStatus" class="mb-4 p-3 rounded-xl" :class="pushStatus.step === 'failed' ? 'bg-red-50 dark:bg-red-950/50' : pushStatus.step === 'completed' ? 'bg-emerald-50 dark:bg-emerald-950/50' : 'bg-primary-50 dark:bg-primary-950/50'">
+        <!-- Progress bar -->
+        <div class="w-full h-1.5 rounded-full bg-gray-200 dark:bg-gray-700 mb-2 overflow-hidden">
+          <div
+            class="h-full rounded-full transition-all duration-500 ease-out"
+            :class="progressBarColor"
+            :style="{ width: pushStatus.progress + '%' }"
+          ></div>
+        </div>
+
+        <!-- Status message -->
+        <p class="text-xs font-medium" :class="statusColor">
+          {{ pushStatus.message }}
+        </p>
+
+        <!-- Stats (when available) -->
+        <div v-if="pushStatus.papers_found > 0 || pushStatus.papers_sent > 0" class="flex gap-3 mt-1.5 text-[10px] text-gray-500 dark:text-gray-400">
+          <span v-if="pushStatus.papers_found">抓取: {{ pushStatus.papers_found }} 篇</span>
+          <span v-if="pushStatus.papers_relevant">相关: {{ pushStatus.papers_relevant }} 篇</span>
+          <span v-if="pushStatus.papers_sent">发送: {{ pushStatus.papers_sent }} 篇</span>
+        </div>
+
+        <!-- Dismiss button (when done) -->
+        <button v-if="pushStatus.is_done" @click="dismissStatus" class="mt-2 text-[10px] underline text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
+          关闭
+        </button>
       </div>
     </transition>
 
     <!-- Actions -->
     <div class="flex items-center gap-2 pt-3 border-t border-gray-100 dark:border-gray-800">
+      <!-- Date toggle button -->
+      <button
+        v-if="!triggerLoading"
+        @click="showDatePicker = !showDatePicker"
+        class="p-1.5 rounded-lg transition-colors"
+        :class="showDatePicker ? 'text-primary-500 bg-primary-50 dark:bg-primary-950' : 'text-gray-400 hover:text-primary-500 hover:bg-primary-50 dark:hover:bg-primary-950'"
+        title="选择日期范围"
+      >
+        <CalendarDaysIcon class="w-4 h-4" />
+      </button>
+
+      <!-- Trigger button -->
       <button
         @click="handleTrigger"
         :disabled="triggerLoading || !sub.is_active"
         class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-primary-600 text-white hover:bg-primary-700 disabled:opacity-40 transition-colors"
       >
-        <BoltIcon class="w-3.5 h-3.5" />
+        <svg v-if="triggerLoading" class="animate-spin w-3.5 h-3.5" fill="none" viewBox="0 0 24 24">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+        </svg>
+        <BoltIcon v-else class="w-3.5 h-3.5" />
         {{ triggerLoading ? '推送中...' : '立即推送' }}
       </button>
+
       <button @click="toggleActive" class="p-1.5 rounded-lg text-gray-400 hover:text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-950 transition-colors" :title="sub.is_active ? '暂停' : '启用'">
         <PauseIcon v-if="sub.is_active" class="w-4 h-4" />
         <PlayIcon v-else class="w-4 h-4" />

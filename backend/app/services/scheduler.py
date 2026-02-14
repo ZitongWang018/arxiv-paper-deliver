@@ -13,6 +13,7 @@ from app.models import Subscription, User, PushRecord
 from app.auth import create_access_token
 from app.config import get_settings
 from app.services import arxiv_service, llm_service, email_service
+from app.services.push_tracker import PushTask, PushStep, create_task
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -20,7 +21,10 @@ settings = get_settings()
 scheduler = AsyncIOScheduler()
 
 
-async def _execute_subscription_push(subscription_id: int) -> None:
+async def _execute_subscription_push(
+    subscription_id: int,
+    task: PushTask | None = None,
+) -> None:
     """Core pipeline: fetch -> analyze -> email for a single subscription."""
     async with async_session_factory() as db:
         try:
@@ -32,7 +36,10 @@ async def _execute_subscription_push(subscription_id: int) -> None:
             )
             sub = result.scalar_one_or_none()
             if sub is None:
-                logger.warning("Subscription %d not found or inactive, skipping.", subscription_id)
+                msg = f"Subscription {subscription_id} not found or inactive"
+                logger.warning("%s, skipping.", msg)
+                if task:
+                    task.fail("订阅不存在或已暂停")
                 return
 
             # Idempotency guard for daily mode: skip if already pushed today.
@@ -51,12 +58,16 @@ async def _execute_subscription_push(subscription_id: int) -> None:
                         "Subscription %d already pushed today, skipping duplicate daily run.",
                         sub.id,
                     )
+                    if task:
+                        task.fail("今日已推送过，请勿重复推送")
                     return
 
             user_result = await db.execute(select(User).where(User.id == sub.user_id))
             user = user_result.scalar_one_or_none()
             if user is None:
                 logger.error("User %d not found for subscription %d", sub.user_id, subscription_id)
+                if task:
+                    task.fail("用户账号异常")
                 return
 
             # 1. Determine date range
@@ -71,6 +82,11 @@ async def _execute_subscription_push(subscription_id: int) -> None:
                 end = date.today()
 
             # 2. Fetch papers from arxiv
+            if task:
+                task.advance(
+                    PushStep.FETCHING_PAPERS,
+                    f"正在从 arXiv 抓取论文（{start} ~ {end}）...",
+                )
             logger.info("Fetching papers for subscription '%s' (%s -> %s)", sub.name, start, end)
             raw_papers = await arxiv_service.fetch_papers(
                 arxiv_categories=sub.arxiv_categories,
@@ -80,7 +96,16 @@ async def _execute_subscription_push(subscription_id: int) -> None:
             )
             if not raw_papers:
                 logger.info("No papers found for subscription '%s'", sub.name)
+                if task:
+                    task.fail("未找到论文，请检查日期范围或 arXiv 分类是否正确")
                 return
+
+            if task:
+                task.advance(
+                    PushStep.ANALYZING,
+                    f"已抓取 {len(raw_papers)} 篇论文，正在用 {sub.llm_provider} 分析相关性...",
+                    papers_found=len(raw_papers),
+                )
 
             # 3. LLM analysis
             logger.info("Analyzing %d papers with %s", len(raw_papers), sub.llm_provider)
@@ -96,7 +121,19 @@ async def _execute_subscription_push(subscription_id: int) -> None:
             top_papers = [p for p in analyzed if p.get("relevance_score", 0) >= 5][:sub.max_papers]
             if not top_papers:
                 logger.info("No relevant papers found for subscription '%s'", sub.name)
+                if task:
+                    task.fail(
+                        f"在 {len(raw_papers)} 篇论文中未找到高相关性结果（评分 >= 5），"
+                        "请尝试调整研究兴趣描述或扩大日期范围"
+                    )
                 return
+
+            if task:
+                task.advance(
+                    PushStep.SENDING_EMAIL,
+                    f"找到 {len(top_papers)} 篇相关论文，正在发送邮件...",
+                    papers_relevant=len(top_papers),
+                )
 
             # 5. Upsert papers into DB and create push records
             orm_papers = await arxiv_service.upsert_papers(db, top_papers)
@@ -142,19 +179,35 @@ async def _execute_subscription_push(subscription_id: int) -> None:
 
             # 8. Send email
             subject = f"📄 ArxivDigest - {sub.name} ({date.today().isoformat()})"
-            await email_service.send_email(
+            email_ok = await email_service.send_email(
                 to_email=user.email,
                 subject=subject,
                 html_body=html,
             )
 
+            if not email_ok:
+                if task:
+                    task.fail("论文已分析完成，但邮件发送失败，请检查邮件配置")
+                logger.error("Email send failed for subscription '%s'", sub.name)
+                await db.rollback()
+                return
+
             await db.commit()
             logger.info("Push completed for subscription '%s': %d papers sent to %s",
                         sub.name, len(email_papers), user.email)
 
+            if task:
+                task.advance(
+                    PushStep.COMPLETED,
+                    f"推送完成！已将 {len(email_papers)} 篇论文发送到 {user.email}",
+                    papers_sent=len(email_papers),
+                )
+
         except Exception as exc:
             logger.exception("Push failed for subscription %d: %s", subscription_id, exc)
             await db.rollback()
+            if task:
+                task.fail(f"系统错误：{str(exc)[:200]}")
 
 
 def _job_id(subscription_id: int) -> str:
@@ -193,9 +246,9 @@ def unschedule_subscription(sub_id: int) -> None:
         logger.info("Unscheduled daily push for subscription %d", sub_id)
 
 
-async def trigger_push_now(subscription_id: int) -> None:
+async def trigger_push_now(subscription_id: int, task: PushTask | None = None) -> None:
     """Trigger an immediate push for a subscription (manual)."""
-    await _execute_subscription_push(subscription_id)
+    await _execute_subscription_push(subscription_id, task=task)
 
 
 async def trigger_all_active_auto_daily_pushes() -> int:

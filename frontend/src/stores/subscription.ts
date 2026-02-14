@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { subscriptionApi, type SubscriptionPayload } from '@/api'
+import { subscriptionApi, type SubscriptionPayload, type TriggerPayload, type PushStatus } from '@/api'
 
 export interface Subscription {
   id: number
@@ -51,9 +51,15 @@ export const useSubscriptionStore = defineStore('subscription', () => {
     subscriptions.value = subscriptions.value.filter((s) => s.id !== id)
   }
 
-  async function trigger(id: number) {
-    await subscriptionApi.trigger(id)
+  async function trigger(id: number, dates?: TriggerPayload): Promise<string> {
+    const { data } = await subscriptionApi.trigger(id, dates)
+    return data.task_id
   }
 
-  return { subscriptions, loading, fetchAll, create, update, remove, trigger }
+  async function pollPushStatus(id: number, taskId: string): Promise<PushStatus> {
+    const { data } = await subscriptionApi.pushStatus(id, taskId)
+    return data
+  }
+
+  return { subscriptions, loading, fetchAll, create, update, remove, trigger, pollPushStatus }
 })

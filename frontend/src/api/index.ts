@@ -53,6 +53,24 @@ export interface SubscriptionPayload {
   cron_time?: string
 }
 
+export interface TriggerPayload {
+  start_date?: string | null
+  end_date?: string | null
+}
+
+export interface PushStatus {
+  task_id: string
+  subscription_id: number
+  step: string
+  message: string
+  progress: number
+  papers_found: number
+  papers_relevant: number
+  papers_sent: number
+  error: string | null
+  is_done: boolean
+}
+
 export const subscriptionApi = {
   list: () => api.get('/subscriptions'),
   create: (data: SubscriptionPayload) => api.post('/subscriptions', data),
@@ -60,7 +78,10 @@ export const subscriptionApi = {
   update: (id: number, data: Partial<SubscriptionPayload & { is_active: boolean }>) =>
     api.put(`/subscriptions/${id}`, data),
   delete: (id: number) => api.delete(`/subscriptions/${id}`),
-  trigger: (id: number) => api.post(`/subscriptions/${id}/trigger`),
+  trigger: (id: number, dates?: TriggerPayload) =>
+    api.post<{ message: string; task_id: string }>(`/subscriptions/${id}/trigger`, dates || {}),
+  pushStatus: (id: number, taskId: string) =>
+    api.get<PushStatus>(`/subscriptions/${id}/push-status/${taskId}`),
   history: (id: number) => api.get(`/subscriptions/${id}/history`),
 }
 

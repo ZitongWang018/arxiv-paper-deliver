@@ -13,6 +13,7 @@ from app.schemas import (
 )
 from app.auth import get_current_user
 from app.services.scheduler import schedule_subscription, unschedule_subscription, trigger_push_now
+from app.services.push_tracker import create_task, get_task
 
 router = APIRouter(prefix="/api/subscriptions", tags=["subscriptions"])
 
@@ -139,7 +140,7 @@ async def trigger_push(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Manually trigger a push for a subscription."""
+    """Manually trigger a push for a subscription. Returns task_id for polling."""
     result = await db.execute(
         select(Subscription).where(
             Subscription.id == sub_id,
@@ -158,8 +159,24 @@ async def trigger_push(
     await db.flush()
     await db.commit()
 
-    background_tasks.add_task(trigger_push_now, sub_id)
-    return {"message": "推送任务已提交，稍后将发送到您的邮箱"}
+    task = create_task(subscription_id=sub_id)
+    background_tasks.add_task(trigger_push_now, sub_id, task)
+    return {"message": "推送任务已提交", "task_id": task.task_id}
+
+
+@router.get("/{sub_id}/push-status/{task_id}")
+async def get_push_status(
+    sub_id: int,
+    task_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    """Poll push task status."""
+    task = get_task(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="任务不存在或已过期")
+    if task.subscription_id != sub_id:
+        raise HTTPException(status_code=403, detail="无权访问此任务")
+    return task.to_dict()
 
 
 @router.get("/{sub_id}/history", response_model=list[PushRecordOut])
