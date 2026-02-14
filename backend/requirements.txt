@@ -3,8 +3,8 @@ uvicorn[standard]==0.34.0
 sqlalchemy[asyncio]==2.0.36
 asyncpg==0.30.0
 aiosqlite==0.20.0
-pydantic==2.10.4
-pydantic-settings==2.7.1
+pydantic[email]>=2.11.0,<3
+pydantic-settings>=2.8.0,<3
 python-jose[cryptography]==3.3.0
 bcrypt>=4.0.0
 python-multipart==0.0.20
@@ -13,6 +13,5 @@ openai==1.59.5
 aiosmtplib==3.0.2
 apscheduler==3.10.4
 beautifulsoup4==4.12.3
-pydantic[email]>=2.0
 jinja2==3.1.5
 python-dotenv==1.0.1
