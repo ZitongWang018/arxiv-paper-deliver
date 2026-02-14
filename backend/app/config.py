@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     BASE_URL: str = "http://localhost:8000"
     FRONTEND_URL: str = "http://localhost:5173"
     CORS_ORIGINS: str = "http://localhost:5173,http://localhost:3000"
+    CORS_ORIGIN_REGEX: str = ""
     SCHEDULER_ENABLED: bool = False
     CRON_SECRET_KEY: str = ""
 
