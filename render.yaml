@@ -11,10 +11,14 @@ services:
     envVars:
       - key: ENV
         value: production
+      - key: PYTHON_VERSION
+        value: 3.11.11
       - key: DEBUG
         value: false
       - key: SCHEDULER_ENABLED
-        value: true
+        value: false
+      - key: CRON_SECRET_KEY
+        generateValue: true
       - key: BASE_URL
         sync: false
       - key: FRONTEND_URL
@@ -39,6 +43,12 @@ services:
         value: true
       - key: SMTP_FROM_NAME
         value: ArxivDigest
+      - key: EMAIL_PROVIDER
+        value: resend
+      - key: RESEND_API_KEY
+        sync: false
+      - key: RESEND_FROM_EMAIL
+        value: onboarding@resend.dev
 
 databases:
   - name: arxivdigest-db

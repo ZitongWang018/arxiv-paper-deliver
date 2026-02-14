@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Optional
 
 import aiosmtplib
+import httpx
 from jinja2 import Environment, FileSystemLoader
 
 from app.config import get_settings
@@ -25,7 +26,29 @@ async def send_email(
     html_body: str,
     from_email: Optional[str] = None,
 ) -> bool:
-    """Send an email via SMTP. Returns True on success."""
+    """Send an email via configured provider. Returns True on success."""
+    provider = settings.EMAIL_PROVIDER.strip().lower()
+    if provider == "resend":
+        return await _send_email_via_resend(
+            to_email=to_email,
+            subject=subject,
+            html_body=html_body,
+            from_email=from_email,
+        )
+    return await _send_email_via_smtp(
+        to_email=to_email,
+        subject=subject,
+        html_body=html_body,
+        from_email=from_email,
+    )
+
+
+async def _send_email_via_smtp(
+    to_email: str,
+    subject: str,
+    html_body: str,
+    from_email: Optional[str] = None,
+) -> bool:
     sender = from_email or f"{settings.SMTP_FROM_NAME} <{settings.SMTP_USER}>"
 
     msg = MIMEMultipart("alternative")
@@ -57,6 +80,42 @@ async def send_email(
         return True
     except Exception as exc:
         logger.error("Failed to send email to %s: %s", to_email, exc)
+        return False
+
+
+async def _send_email_via_resend(
+    to_email: str,
+    subject: str,
+    html_body: str,
+    from_email: Optional[str] = None,
+) -> bool:
+    if not settings.RESEND_API_KEY:
+        logger.error("RESEND_API_KEY is empty. Cannot send email via Resend.")
+        return False
+
+    sender_email = from_email or f"{settings.SMTP_FROM_NAME} <{settings.RESEND_FROM_EMAIL}>"
+    payload = {
+        "from": sender_email,
+        "to": [to_email],
+        "subject": subject,
+        "html": html_body,
+    }
+    headers = {
+        "Authorization": f"Bearer {settings.RESEND_API_KEY}",
+        "Content-Type": "application/json",
+    }
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
+                "https://api.resend.com/emails",
+                json=payload,
+                headers=headers,
+            )
+        response.raise_for_status()
+        logger.info("Email sent via Resend to %s", to_email)
+        return True
+    except Exception as exc:
+        logger.error("Failed to send email via Resend to %s: %s", to_email, exc)
         return False
 
 

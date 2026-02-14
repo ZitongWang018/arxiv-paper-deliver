@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
 from app.database import init_db
-from app.routers import auth, subscriptions, papers, stars
+from app.routers import auth, subscriptions, papers, stars, system
 from app.services.scheduler import start_scheduler, shutdown_scheduler, restore_scheduled_jobs
 
 logging.basicConfig(
@@ -58,6 +58,7 @@ app.include_router(auth.router)
 app.include_router(subscriptions.router)
 app.include_router(papers.router)
 app.include_router(stars.router)
+app.include_router(system.router)
 
 
 @app.get("/api/health")

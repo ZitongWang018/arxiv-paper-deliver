@@ -1,7 +1,7 @@
 """APScheduler-based task scheduler for daily paper digest pushes."""
 
 import logging
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -34,6 +34,24 @@ async def _execute_subscription_push(subscription_id: int) -> None:
             if sub is None:
                 logger.warning("Subscription %d not found or inactive, skipping.", subscription_id)
                 return
+
+            # Idempotency guard for daily mode: skip if already pushed today.
+            if sub.auto_daily:
+                day_start = datetime.combine(date.today(), datetime.min.time())
+                day_end = day_start + timedelta(days=1)
+                existing = await db.execute(
+                    select(PushRecord.id).where(
+                        PushRecord.subscription_id == sub.id,
+                        PushRecord.pushed_at >= day_start,
+                        PushRecord.pushed_at < day_end,
+                    ).limit(1)
+                )
+                if existing.scalar_one_or_none() is not None:
+                    logger.info(
+                        "Subscription %d already pushed today, skipping duplicate daily run.",
+                        sub.id,
+                    )
+                    return
 
             user_result = await db.execute(select(User).where(User.id == sub.user_id))
             user = user_result.scalar_one_or_none()
@@ -178,6 +196,23 @@ def unschedule_subscription(sub_id: int) -> None:
 async def trigger_push_now(subscription_id: int) -> None:
     """Trigger an immediate push for a subscription (manual)."""
     await _execute_subscription_push(subscription_id)
+
+
+async def trigger_all_active_auto_daily_pushes() -> int:
+    """Trigger pushes for all active auto_daily subscriptions."""
+    async with async_session_factory() as db:
+        result = await db.execute(
+            select(Subscription.id).where(
+                Subscription.auto_daily == True,  # noqa: E712
+                Subscription.is_active == True,  # noqa: E712
+            )
+        )
+        sub_ids = list(result.scalars().all())
+
+    for sub_id in sub_ids:
+        await _execute_subscription_push(sub_id)
+    logger.info("External cron triggered %d active auto_daily subscriptions", len(sub_ids))
+    return len(sub_ids)
 
 
 async def restore_scheduled_jobs() -> None:

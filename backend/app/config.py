@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     FRONTEND_URL: str = "http://localhost:5173"
     CORS_ORIGINS: str = "http://localhost:5173,http://localhost:3000"
     SCHEDULER_ENABLED: bool = True
+    CRON_SECRET_KEY: str = ""
 
     # Database
     DATABASE_URL: str = "sqlite+aiosqlite:///./arxivdigest.db"
@@ -31,6 +32,9 @@ class Settings(BaseSettings):
     SMTP_PASSWORD: str = ""
     SMTP_USE_TLS: bool = True
     SMTP_FROM_NAME: str = "ArxivDigest"
+    EMAIL_PROVIDER: str = "smtp"  # smtp | resend
+    RESEND_API_KEY: str = ""
+    RESEND_FROM_EMAIL: str = "onboarding@resend.dev"
 
     model_config = {
         "env_file": ".env",

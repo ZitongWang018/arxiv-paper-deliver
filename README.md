@@ -69,16 +69,22 @@ cp .env.production.example .env.production
 
 推荐方案：**Render（后端 + Postgres）+ Vercel（前端）**
 
+注意：Render 免费 Web 服务不支持 SMTP 常用端口出站（25/465/587），
+若使用免费版，请改用邮件 API（本项目支持 `EMAIL_PROVIDER=resend`）。
+
 详细逐步教程见：`DEPLOYMENT_GUIDE.md`
 
 ### 1) 部署后端到 Render
 
-1. 将仓库连接到 Render，选择使用根目录 `render.yaml`。
+1. 在 Render 免费版中先创建 `Postgres (Free)`，再创建 `Web Service (Free)`（Root Directory 选 `backend`）。
+   - Python 版本固定为 `3.11.x`（仓库内 `backend/runtime.txt` 已设置 `python-3.11.11`）
 2. 在 Render 控制台补齐环境变量：
+   - `DATABASE_URL=postgresql+asyncpg://<from-render-postgres>`
    - `BASE_URL=https://<your-backend>.onrender.com`
    - `FRONTEND_URL=https://<your-frontend>.vercel.app`
    - `CORS_ORIGINS=https://<your-frontend>.vercel.app`
-   - `SMTP_*` 全部变量
+   - `EMAIL_PROVIDER=resend`
+   - `RESEND_API_KEY`、`RESEND_FROM_EMAIL`
 3. 首次部署成功后，检查：
    - `https://<your-backend>.onrender.com/healthz`
    - `https://<your-backend>.onrender.com/docs`
