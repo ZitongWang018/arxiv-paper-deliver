@@ -5,6 +5,7 @@ Supports:
 - Fetching papers by date range using the arxiv API (via httpx)
 """
 
+import asyncio
 import re
 import logging
 from datetime import date, timedelta
@@ -119,9 +120,22 @@ def _extract_field_prefix(categories: list[str]) -> set[str]:
 async def _scrape_new_papers(field_abbr: str) -> list[dict]:
     """Scrape today's new papers from arxiv.org/list/{field}/new."""
     url = f"https://arxiv.org/list/{field_abbr}/new"
+    max_retries = 4
     async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
-        resp = await client.get(url)
-        resp.raise_for_status()
+        for attempt in range(max_retries):
+            resp = await client.get(url)
+            if resp.status_code == 429:
+                wait = 3 * (2 ** attempt)
+                logger.warning(
+                    "arxiv rate limited (429) for %s, retrying in %ds (attempt %d/%d)",
+                    url, wait, attempt + 1, max_retries,
+                )
+                await asyncio.sleep(wait)
+                continue
+            resp.raise_for_status()
+            break
+        else:
+            resp.raise_for_status()
 
     soup = BeautifulSoup(resp.text, "html.parser")
     content = soup.body.find("div", {"id": "content"})
@@ -181,9 +195,24 @@ async def _search_papers_by_date(
         "sortOrder": "descending",
     }
 
+    # arxiv API enforces rate limits; retry with exponential backoff on 429
+    max_retries = 4
     async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
-        resp = await client.get(api_url, params=params)
-        resp.raise_for_status()
+        for attempt in range(max_retries):
+            resp = await client.get(api_url, params=params)
+            if resp.status_code == 429:
+                wait = 3 * (2 ** attempt)  # 3s, 6s, 12s, 24s
+                logger.warning(
+                    "arxiv API rate limited (429), retrying in %ds (attempt %d/%d)",
+                    wait, attempt + 1, max_retries,
+                )
+                await asyncio.sleep(wait)
+                continue
+            resp.raise_for_status()
+            break
+        else:
+            # All retries exhausted
+            resp.raise_for_status()  # will raise the 429 error
 
     soup = BeautifulSoup(resp.text, "xml")
     entries = soup.find_all("entry")
