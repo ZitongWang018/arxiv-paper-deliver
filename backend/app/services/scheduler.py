@@ -179,7 +179,7 @@ async def _execute_subscription_push(
 
             # 8. Send email
             subject = f"📄 ArxivDigest - {sub.name} ({date.today().isoformat()})"
-            email_ok = await email_service.send_email(
+            email_ok, email_error = await email_service.send_email(
                 to_email=user.email,
                 subject=subject,
                 html_body=html,
@@ -187,8 +187,8 @@ async def _execute_subscription_push(
 
             if not email_ok:
                 if task:
-                    task.fail("论文已分析完成，但邮件发送失败，请检查邮件配置")
-                logger.error("Email send failed for subscription '%s'", sub.name)
+                    task.fail(f"论文已分析完成，但邮件发送失败：{email_error}")
+                logger.error("Email send failed for subscription '%s': %s", sub.name, email_error)
                 await db.rollback()
                 return
 

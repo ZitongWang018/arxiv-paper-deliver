@@ -25,8 +25,8 @@ async def send_email(
     subject: str,
     html_body: str,
     from_email: Optional[str] = None,
-) -> bool:
-    """Send an email via configured provider. Returns True on success."""
+) -> tuple[bool, str]:
+    """Send an email via configured provider. Returns (success, error_detail)."""
     provider = settings.EMAIL_PROVIDER.strip().lower()
     if provider == "resend":
         return await _send_email_via_resend(
@@ -48,8 +48,13 @@ async def _send_email_via_smtp(
     subject: str,
     html_body: str,
     from_email: Optional[str] = None,
-) -> bool:
+) -> tuple[bool, str]:
     sender = from_email or f"{settings.SMTP_FROM_NAME} <{settings.SMTP_USER}>"
+
+    if not settings.SMTP_USER or not settings.SMTP_PASSWORD:
+        msg = "SMTP_USER 或 SMTP_PASSWORD 未配置"
+        logger.error(msg)
+        return False, msg
 
     msg = MIMEMultipart("alternative")
     msg["From"] = sender
@@ -76,11 +81,12 @@ async def _send_email_via_smtp(
                 password=settings.SMTP_PASSWORD,
                 start_tls=True,
             )
-        logger.info("Email sent to %s", to_email)
-        return True
+        logger.info("Email sent to %s via SMTP", to_email)
+        return True, ""
     except Exception as exc:
+        detail = f"SMTP 发送失败 ({settings.SMTP_HOST}:{settings.SMTP_PORT}): {exc}"
         logger.error("Failed to send email to %s: %s", to_email, exc)
-        return False
+        return False, detail
 
 
 async def _send_email_via_resend(
@@ -88,10 +94,11 @@ async def _send_email_via_resend(
     subject: str,
     html_body: str,
     from_email: Optional[str] = None,
-) -> bool:
+) -> tuple[bool, str]:
     if not settings.RESEND_API_KEY:
-        logger.error("RESEND_API_KEY is empty. Cannot send email via Resend.")
-        return False
+        msg = "RESEND_API_KEY 未配置"
+        logger.error(msg)
+        return False, msg
 
     sender_email = from_email or f"{settings.SMTP_FROM_NAME} <{settings.RESEND_FROM_EMAIL}>"
     payload = {
@@ -113,10 +120,16 @@ async def _send_email_via_resend(
             )
         response.raise_for_status()
         logger.info("Email sent via Resend to %s", to_email)
-        return True
+        return True, ""
+    except httpx.HTTPStatusError as exc:
+        body = exc.response.text[:300] if exc.response else ""
+        detail = f"Resend API 返回 {exc.response.status_code}: {body}"
+        logger.error("Resend failed for %s: %s", to_email, detail)
+        return False, detail
     except Exception as exc:
+        detail = f"Resend 发送失败: {exc}"
         logger.error("Failed to send email via Resend to %s: %s", to_email, exc)
-        return False
+        return False, detail
 
 
 def render_digest_email(
